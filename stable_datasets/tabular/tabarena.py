@@ -1,12 +1,15 @@
 """TabArena benchmark suite loader.
 
-Exposes the full TabArena benchmark (published at NeurIPS 2025) as a
+Exposes the full TabArena benchmark (NeurIPS 2025 Datasets & Benchmarks) as a
 collection of ``TabularDataset`` objects.  Task IDs are fetched from the
 OpenML study "tabarena-v0.1" and cached in memory after the first call.
 Each task's data and pre-defined fold/repeat splits are downloaded from
 OpenML and cached locally as Arrow IPC + JSON on first use.
 
-Cache layout (under ``~/.stable-datasets/processed/tabarena/``)::
+Homepage: https://openreview.net/forum?id=jZqCqpCLdU
+Code:     https://github.com/autogluon/tabarena/
+
+Cache layout (under ``~/.stable_datasets/processed/tabarena/``)::
 
     task_<task_id>/
     ├── data.arrow       Arrow IPC file — full table, all columns incl. target
@@ -21,8 +24,8 @@ Usage::
     ids = TabArena.task_ids()
 
     # Load a single task (downloads + caches on first use)
-    ds = TabArena.load(task_id=363621)
-    ds = TabArena.load(task_name="credit-g")   # slower: scans cache then OpenML
+    ds = TabArena(task_id=363621)
+    ds = TabArena(task_name="credit-g")   # slower: scans cache then OpenML
 
     # Cross-validation
     train, test = ds.get_fold(fold=0, repeat=0)
@@ -37,7 +40,6 @@ Usage::
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -47,33 +49,103 @@ import pyarrow as pa
 import pyarrow.ipc as ipc
 from loguru import logger as logging
 
-from ..arrow_dataset import _mmap_ipc
-from ..utils import _get_cache_dir
-from .base import TabularDataset, TabularTaskInfo, _Splits
+from stable_datasets.arrow_dataset import _mmap_ipc
+from stable_datasets.schema import Version
+from .base import TabularBaseDatasetBuilder, TabularDataset, TabularTaskInfo, _Splits
 
 _SUITE_NAME = "tabarena-v0.1"
 
 
-class TabArena:
+class TabArena(TabularBaseDatasetBuilder):
     """TabArena benchmark suite: ~51 curated OpenML tabular datasets.
 
-    All public methods are classmethods.  This class is never instantiated —
-    it is a namespace for suite-level operations.
+    Construct with a task ID or name to load a single :class:`TabularDataset`::
 
-    Each task is identified by its OpenML task ID.  The list of task IDs is
-    retrieved from ``openml.study.get_suite("tabarena-v0.1")`` and cached in
-    memory for the lifetime of the process.
+        ds = TabArena(task_id=363621)
+        ds = TabArena(task_name="credit-g")
+
+    Suite-level classmethods::
+
+        TabArena.task_ids()       # list of all OpenML task IDs
+        TabArena.iter_tasks()     # iterator of TabularDataset objects
+        TabArena.load(task_id=…)  # alias for TabArena(task_id=…)
 
     Requires the ``openml`` package (``pip install openml``).
     """
 
+    VERSION = Version("0.1.0")
+
+    SOURCE = {
+        "homepage": "https://openreview.net/forum?id=jZqCqpCLdU",
+        "code": "https://github.com/autogluon/tabarena/",
+        "citation": """@inproceedings{erickson2025tabarena,
+                        title={TabArena: A Living Benchmark for Machine Learning on Tabular Data},
+                        author={Nick Erickson and Lennart Purucker and Andrej Tschalzev and David Holzm{\\"u}ller and Prateek Mutalik Desai and David Salinas and Frank Hutter},
+                        booktitle={The Thirty-ninth Annual Conference on Neural Information Processing Systems Datasets and Benchmarks Track},
+                        year={2025},
+                        url={https://openreview.net/forum?id=jZqCqpCLdU}
+                    }""",
+    }
+
     # In-process cache: populated on first call to task_ids().
     _suite_task_ids: ClassVar[list[int] | None] = None
 
-    def __new__(cls, *args, **kwargs):
-        raise TypeError(
-            "TabArena is a suite namespace and cannot be instantiated. "
-            "Use TabArena.load(), TabArena.iter_tasks(), or TabArena.task_ids()."
+    # ------------------------------------------------------------------
+    # TabularBaseDatasetBuilder implementation
+    # ------------------------------------------------------------------
+
+    def _build_tabular_dataset(
+        self, task_id: int | None = None, task_name: str | None = None
+    ) -> TabularDataset:
+        if task_id is None and task_name is None:
+            raise ValueError("Provide either task_id or task_name.")
+        if task_id is not None and task_name is not None:
+            raise ValueError("Provide only one of task_id or task_name, not both.")
+
+        if task_id is None:
+            task_id = self._resolve_task_name(task_name)
+
+        cache_dir = self._task_cache_dir(task_id)
+
+        if _is_cached(cache_dir):
+            return _load_from_cache(cache_dir)
+
+        return _download_and_cache(task_id, cache_dir)
+
+    def _task_cache_dir(self, task_id: int) -> Path:
+        return self._processed_cache_dir / "tabarena" / f"task_{task_id}"
+
+    def _resolve_task_name(self, task_name: str) -> int:
+        """Resolve a dataset name to a task ID.
+
+        Fast path: scan ``metadata.json`` files in the local cache.
+        Slow path: fetch each task's metadata from OpenML until a match is found.
+        """
+        base = self._processed_cache_dir / "tabarena"
+        if base.exists():
+            for task_dir in base.iterdir():
+                meta_path = task_dir / "metadata.json"
+                if meta_path.exists():
+                    meta = json.loads(meta_path.read_text())
+                    if meta.get("task_name") == task_name:
+                        return meta["task_id"]
+
+        import openml
+
+        logging.warning(
+            f"Task name {task_name!r} not found in local cache. "
+            "Querying OpenML for each task — this may be slow. "
+            "Use task_id for faster lookups."
+        )
+        for tid in self.__class__.task_ids():
+            task = openml.tasks.get_task(tid, download_data=False, download_splits=False)
+            ds = task.get_dataset(download_data=False)
+            if ds.name == task_name:
+                return tid
+
+        raise ValueError(
+            f"No TabArena task with name {task_name!r}. "
+            "Use TabArena.task_ids() to list available task IDs."
         )
 
     # ------------------------------------------------------------------
@@ -97,7 +169,7 @@ class TabArena:
         return cls._suite_task_ids
 
     # ------------------------------------------------------------------
-    # Loading
+    # Convenience API
     # ------------------------------------------------------------------
 
     @classmethod
@@ -109,33 +181,26 @@ class TabArena:
     ) -> TabularDataset:
         """Load a single TabArena task, downloading and caching if needed.
 
+        Alias for ``TabArena(task_id=…)`` / ``TabArena(task_name=…)``.
+
         Args:
             task_id: OpenML task ID.  Provide either this or ``task_name``.
             task_name: Dataset name (e.g. ``"credit-g"``).  Resolved by
                 scanning the local cache first, then querying OpenML — prefer
                 ``task_id`` when performance matters.
             processed_cache_dir: Override the base directory for processed
-                caches.  Defaults to ``~/.stable-datasets/processed/tabarena/``.
+                caches.  Defaults to ``~/.stable_datasets/processed/``.
                 Respects the ``STABLE_DATASETS_CACHE_DIR`` environment variable.
 
         Returns:
             A :class:`~stable_datasets.tabular.TabularDataset` with all rows
             and pre-defined fold/repeat splits ready for use.
         """
-        if task_id is None and task_name is None:
-            raise ValueError("Provide either task_id or task_name.")
-        if task_id is not None and task_name is not None:
-            raise ValueError("Provide only one of task_id or task_name, not both.")
-
-        if task_id is None:
-            task_id = cls._resolve_task_name(task_name, processed_cache_dir)
-
-        cache_dir = cls._task_cache_dir(task_id, processed_cache_dir)
-
-        if _is_cached(cache_dir):
-            return _load_from_cache(cache_dir)
-
-        return _download_and_cache(task_id, cache_dir)
+        return cls(
+            task_id=task_id,
+            task_name=task_name,
+            processed_cache_dir=processed_cache_dir,
+        )
 
     @classmethod
     def iter_tasks(
@@ -153,55 +218,6 @@ class TabArena:
         ids = task_ids if task_ids is not None else cls.task_ids()
         for tid in ids:
             yield cls.load(task_id=tid, processed_cache_dir=processed_cache_dir)
-
-    # ------------------------------------------------------------------
-    # Internals
-    # ------------------------------------------------------------------
-
-    @classmethod
-    def _task_cache_dir(cls, task_id: int, base: Path | str | None) -> Path:
-        if base is None:
-            base = Path(os.path.expanduser(_get_cache_dir())) / "processed" / "tabarena"
-        return Path(base) / f"task_{task_id}"
-
-    @classmethod
-    def _resolve_task_name(cls, task_name: str, processed_cache_dir: Path | str | None) -> int:
-        """Resolve a dataset name to a task ID.
-
-        Fast path: scan ``metadata.json`` files in the local cache.
-        Slow path: fetch each task's metadata from OpenML until a match is found.
-        """
-        # Fast path — check already-cached tasks (no network call).
-        if processed_cache_dir is None:
-            base = Path(os.path.expanduser(_get_cache_dir())) / "processed" / "tabarena"
-        else:
-            base = Path(processed_cache_dir)
-        if base.exists():
-            for task_dir in base.iterdir():
-                meta_path = task_dir / "metadata.json"
-                if meta_path.exists():
-                    meta = json.loads(meta_path.read_text())
-                    if meta.get("task_name") == task_name:
-                        return meta["task_id"]
-
-        # Slow path — query OpenML for each task until we find a match.
-        import openml
-
-        logging.warning(
-            f"Task name {task_name!r} not found in local cache. "
-            "Querying OpenML for each task — this may be slow. "
-            "Use task_id for faster lookups."
-        )
-        for tid in cls.task_ids():
-            task = openml.tasks.get_task(tid, download_data=False, download_splits=False)
-            ds = task.get_dataset(download_data=False)
-            if ds.name == task_name:
-                return tid
-
-        raise ValueError(
-            f"No TabArena task with name {task_name!r}. "
-            "Use TabArena.task_ids() to list available task IDs."
-        )
 
 
 # ------------------------------------------------------------------
@@ -277,7 +293,7 @@ def _download_and_cache(task_id: int, cache_dir: Path) -> TabularDataset:
         )
         if cache_dir.exists():
             shutil.rmtree(cache_dir)
-        os.rename(str(tmp_dir), str(cache_dir))
+        shutil.move(str(tmp_dir), str(cache_dir))
     except BaseException:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         raise
