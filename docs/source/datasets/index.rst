@@ -76,7 +76,7 @@ Available Datasets
    :maxdepth: 1
    :caption: Tabular Datasets
 
-   tabarena
+   gittables
 
 .. note::
    Documentation is being added progressively, as datasets are ready for usage. Please only use datasets found in the documentation.
