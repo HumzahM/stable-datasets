@@ -22,17 +22,17 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
+from collections.abc import Iterator
 
 import pandas as pd
 import pyarrow as pa
 
+from stable_datasets.schema import BuilderConfig
 from stable_datasets.utils import (
     BaseDatasetBuilder,
     _default_dest_folder,
     _default_processed_cache_dir,
 )
-from stable_datasets.schema import BuilderConfig
 
 
 @dataclass(frozen=True)
@@ -313,7 +313,7 @@ class TabularBaseDatasetBuilder(BaseDatasetBuilder):
         processed_cache_dir=None,
         download_dir=None,
         **kwargs,
-    ) -> "TabularDataset":
+    ) -> TabularDataset:
         """Download / load a tabular task, caching on disk, and return a :class:`TabularDataset`.
 
         Args:
@@ -349,9 +349,7 @@ class TabularBaseDatasetBuilder(BaseDatasetBuilder):
 
         return instance._build_tabular_dataset(task_id=task_id, task_name=task_name)
 
-    def _build_tabular_dataset(
-        self, task_id: int | None = None, task_name: str | None = None
-    ) -> "TabularDataset":
+    def _build_tabular_dataset(self, task_id: int | None = None, task_name: str | None = None) -> TabularDataset:
         """Load or download a single task and return a :class:`TabularDataset`.
 
         Must be overridden by concrete subclasses.

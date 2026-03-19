@@ -1,8 +1,7 @@
-import pytest
 import pyarrow as pa
+import pytest
 
 from stable_datasets.tabular.base import TabularDataset, TabularTaskInfo
-
 
 
 def _make_info(**overrides) -> TabularTaskInfo:
@@ -21,11 +20,13 @@ def _make_info(**overrides) -> TabularTaskInfo:
 
 
 def _make_dataset(n_rows: int = 10, with_splits: bool = False) -> TabularDataset:
-    table = pa.table({
-        "feature_a": list(range(n_rows)),
-        "feature_b": [float(i) * 0.5 for i in range(n_rows)],
-        "target":    [i % 2 for i in range(n_rows)],
-    })
+    table = pa.table(
+        {
+            "feature_a": list(range(n_rows)),
+            "feature_b": [float(i) * 0.5 for i in range(n_rows)],
+            "target": [i % 2 for i in range(n_rows)],
+        }
+    )
     info = _make_info(n_rows=n_rows)
 
     if not with_splits:
@@ -33,12 +34,13 @@ def _make_dataset(n_rows: int = 10, with_splits: bool = False) -> TabularDataset
 
     # Two folds, one repeat
     train_0 = list(range(0, 8))
-    test_0  = list(range(8, 10))
+    test_0 = list(range(8, 10))
     train_1 = list(range(2, 10))
-    test_1  = list(range(0, 2))
-    splits  = {0: {0: (train_0, test_0), 1: (train_1, test_1)}}
+    test_1 = list(range(0, 2))
+    splits = {0: {0: (train_0, test_0), 1: (train_1, test_1)}}
     info_with_splits = _make_info(n_rows=n_rows, n_folds=2, n_repeats=1)
     return TabularDataset(table, info_with_splits, splits=splits)
+
 
 def test_info_returns_task_info():
     ds = _make_dataset()
@@ -47,12 +49,12 @@ def test_info_returns_task_info():
 
 def test_metadata_properties():
     ds = _make_dataset()
-    assert ds.task_id      == 0
-    assert ds.task_name    == "test_task"
+    assert ds.task_id == 0
+    assert ds.task_name == "test_task"
     assert ds.problem_type == "binary"
-    assert ds.target_col   == "target"
-    assert ds.n_folds      == 0
-    assert ds.n_repeats    == 0
+    assert ds.target_col == "target"
+    assert ds.n_folds == 0
+    assert ds.n_repeats == 0
 
 
 def test_repr_contains_task_name():
@@ -191,24 +193,21 @@ def test_get_fold_sizes():
     ds = _make_dataset(n_rows=10, with_splits=True)
     train, test = ds.get_fold(fold=0, repeat=0)
     assert len(train) == 8
-    assert len(test)  == 2
+    assert len(test) == 2
 
 
 def test_get_fold_no_overlap():
     ds = _make_dataset(n_rows=10, with_splits=True)
     train, test = ds.get_fold(fold=0, repeat=0)
     train_vals = set(train.table.column("feature_a").to_pylist())
-    test_vals  = set(test.table.column("feature_a").to_pylist())
+    test_vals = set(test.table.column("feature_a").to_pylist())
     assert train_vals.isdisjoint(test_vals)
 
 
 def test_get_fold_covers_all_rows():
     ds = _make_dataset(n_rows=10, with_splits=True)
     train, test = ds.get_fold(fold=0, repeat=0)
-    all_vals = (
-        set(train.table.column("feature_a").to_pylist()) |
-        set(test.table.column("feature_a").to_pylist())
-    )
+    all_vals = set(train.table.column("feature_a").to_pylist()) | set(test.table.column("feature_a").to_pylist())
     assert all_vals == set(range(10))
 
 
@@ -228,10 +227,10 @@ def test_iter_folds_yields_correct_count():
 def test_iter_folds_yields_correct_types():
     ds = _make_dataset(with_splits=True)
     for fold, repeat, train, test in ds.iter_folds():
-        assert isinstance(fold,  int)
+        assert isinstance(fold, int)
         assert isinstance(repeat, int)
         assert isinstance(train, TabularDataset)
-        assert isinstance(test,  TabularDataset)
+        assert isinstance(test, TabularDataset)
 
 
 def test_fold_subsets_have_no_further_splits():

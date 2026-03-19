@@ -3,6 +3,7 @@ import pyarrow as pa
 from stable_datasets.tabular import GitTables
 from stable_datasets.tabular.base import TabularDataset, TabularTaskInfo
 
+
 # Smallest zip in the Zenodo manifest (~11 MB) — used for all tests to
 # avoid slow downloads in CI.
 _TEST_ZIP = "beats_per_minute_tables_licensed.zip"
@@ -17,7 +18,7 @@ def test_zip_files_returns_manifest():
 
     for entry in zips:
         assert "name" in entry
-        assert "url"  in entry
+        assert "url" in entry
         assert "size" in entry
         assert entry["name"].endswith(".zip")
 
@@ -56,7 +57,7 @@ def test_load_dataset_shape():
     tables = GitTables.list_tables(_TEST_ZIP)
     ds = GitTables.load(zip_name=_TEST_ZIP, table_name=tables[0])
 
-    assert ds.info.n_rows > 0,     f"Expected n_rows > 0, got {ds.info.n_rows}"
+    assert ds.info.n_rows > 0, f"Expected n_rows > 0, got {ds.info.n_rows}"
     assert ds.info.n_features > 0, f"Expected n_features > 0, got {ds.info.n_features}"
     assert len(ds) == ds.info.n_rows
 
@@ -103,7 +104,7 @@ def test_iter_tables_yields_tabular_datasets():
         assert ds.info.n_rows > 0
         assert ds.info.n_features > 0
         seen += 1
-        if seen >= 3:   # only check first 3 tables — enough to validate, fast to run
+        if seen >= 3:  # only check first 3 tables — enough to validate, fast to run
             break
 
     assert seen == 3, f"Expected to iterate at least 3 tables, got {seen}"

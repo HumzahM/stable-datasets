@@ -60,7 +60,8 @@ import shutil
 import tempfile
 import zipfile
 from pathlib import Path
-from typing import ClassVar, Iterator
+from typing import ClassVar
+from collections.abc import Iterator
 
 import pyarrow as pa
 import pyarrow.ipc as ipc
@@ -71,7 +72,9 @@ from loguru import logger as logging
 from stable_datasets.arrow_dataset import _mmap_ipc
 from stable_datasets.schema import Version
 from stable_datasets.utils import _default_dest_folder
+
 from .base import TabularBaseDatasetBuilder, TabularDataset, TabularTaskInfo
+
 
 _ZENODO_RECORD_ID = "6517052"
 _ZENODO_API_URL = f"https://zenodo.org/api/records/{_ZENODO_RECORD_ID}"
@@ -130,9 +133,7 @@ class GitTables(TabularBaseDatasetBuilder):
     # TabularBaseDatasetBuilder implementation
     # ------------------------------------------------------------------
 
-    def _build_tabular_dataset(
-        self, task_id: int | None = None, task_name: str | None = None
-    ) -> TabularDataset:
+    def _build_tabular_dataset(self, task_id: int | None = None, task_name: str | None = None) -> TabularDataset:
         """Load a single table identified by its encoded ``task_name``.
 
         ``task_name`` must be of the form ``"<zip_name>/<table_name>"``
@@ -160,7 +161,7 @@ class GitTables(TabularBaseDatasetBuilder):
         )
 
     def _table_cache_dir(self, zip_name: str, table_name: str) -> Path:
-        zip_stem   = Path(zip_name).stem
+        zip_stem = Path(zip_name).stem
         table_stem = Path(table_name).stem
         return self._processed_cache_dir / "gittables" / zip_stem / table_stem
 
@@ -182,9 +183,7 @@ class GitTables(TabularBaseDatasetBuilder):
         cached in memory for the lifetime of the process.
         """
         if cls._zenodo_manifest is None:
-            logging.info(
-                f"Fetching GitTables file manifest from Zenodo record {_ZENODO_RECORD_ID!r}..."
-            )
+            logging.info(f"Fetching GitTables file manifest from Zenodo record {_ZENODO_RECORD_ID!r}...")
             resp = requests.get(_ZENODO_API_URL, timeout=30)
             resp.raise_for_status()
             data = resp.json()
@@ -197,9 +196,7 @@ class GitTables(TabularBaseDatasetBuilder):
                 for f in data["files"]
                 if f["key"].endswith(".zip")
             ]
-            logging.info(
-                f"GitTables corpus: {len(cls._zenodo_manifest)} zip archive(s) on Zenodo."
-            )
+            logging.info(f"GitTables corpus: {len(cls._zenodo_manifest)} zip archive(s) on Zenodo.")
         return cls._zenodo_manifest
 
     # ------------------------------------------------------------------
@@ -308,7 +305,7 @@ class GitTables(TabularBaseDatasetBuilder):
         download_dir = _default_dest_folder() / "gittables"
 
         for entry in manifests:
-            zname    = entry["name"]
+            zname = entry["name"]
             zip_path = _ensure_zip_downloaded(entry["url"], zname, download_dir)
             logging.info(f"Streaming tables from {zname!r}...")
             for table_path_in_zip in _list_parquet_names_in_zip(zip_path):
@@ -344,10 +341,7 @@ def _parse_table_name(task_name: str) -> tuple[str, str]:
 
 
 def _is_cached(cache_dir: Path) -> bool:
-    return (
-        (cache_dir / "data.arrow").exists()
-        and (cache_dir / "metadata.json").exists()
-    )
+    return (cache_dir / "data.arrow").exists() and (cache_dir / "metadata.json").exists()
 
 
 def _load_from_cache(cache_dir: Path) -> TabularDataset:
@@ -378,12 +372,11 @@ def _download_and_cache(
     url = next((m["url"] for m in manifest if m["name"] == zip_name), None)
     if url is None:
         raise ValueError(
-            f"Archive {zip_name!r} not found in Zenodo manifest. "
-            "Use GitTables.zip_files() to list available archives."
+            f"Archive {zip_name!r} not found in Zenodo manifest. Use GitTables.zip_files() to list available archives."
         )
 
     zip_path = _ensure_zip_downloaded(url, zip_name, download_dir)
-    table    = _extract_table_from_zip(zip_path, table_name)
+    table = _extract_table_from_zip(zip_path, table_name)
 
     info = TabularTaskInfo(
         task_id=0,
@@ -404,14 +397,14 @@ def _download_and_cache(
         (tmp_dir / "metadata.json").write_text(
             json.dumps(
                 {
-                    "task_id":       info.task_id,
-                    "task_name":     info.task_name,
-                    "problem_type":  info.problem_type,
-                    "target_col":    info.target_col,
-                    "n_rows":        info.n_rows,
-                    "n_features":    info.n_features,
-                    "n_folds":       info.n_folds,
-                    "n_repeats":     info.n_repeats,
+                    "task_id": info.task_id,
+                    "task_name": info.task_name,
+                    "problem_type": info.problem_type,
+                    "target_col": info.target_col,
+                    "n_rows": info.n_rows,
+                    "n_features": info.n_features,
+                    "n_folds": info.n_folds,
+                    "n_repeats": info.n_repeats,
                 },
                 indent=2,
             )
@@ -443,9 +436,10 @@ def _ensure_zip_downloaded(url: str, zip_name: str, download_dir: Path) -> Path:
             total = int(resp.headers.get("content-length", 0))
             from tqdm import tqdm
 
-            with open(tmp_path, "wb") as f, tqdm(
-                total=total or None, unit="B", unit_scale=True, desc=zip_name
-            ) as pbar:
+            with (
+                open(tmp_path, "wb") as f,
+                tqdm(total=total or None, unit="B", unit_scale=True, desc=zip_name) as pbar,
+            ):
                 for chunk in resp.iter_content(chunk_size=65_536):
                     f.write(chunk)
                     pbar.update(len(chunk))
@@ -474,9 +468,7 @@ def _extract_table_from_zip(zip_path: Path, table_name: str) -> pa.Table:
             return pq.read_table(io.BytesIO(f.read()))
 
 
-def _read_table_from_zip(
-    zip_path: Path, parquet_path_in_zip: str, table_name: str
-) -> TabularDataset:
+def _read_table_from_zip(zip_path: Path, parquet_path_in_zip: str, table_name: str) -> TabularDataset:
     """Parse a Parquet entry from a zip and return an in-memory TabularDataset (no disk cache)."""
     with zipfile.ZipFile(zip_path, "r") as zf:
         with zf.open(parquet_path_in_zip) as f:
@@ -500,4 +492,3 @@ def _write_arrow(table: pa.Table, path: Path) -> None:
     with pa.OSFile(str(path), "wb") as sink:
         with ipc.new_file(sink, table.schema) as writer:
             writer.write_table(table)
-
