@@ -35,6 +35,12 @@ Usage::
     # Iterate the whole suite
     for ds in TabArena.iter_tasks():
         train, test = ds.get_fold(fold=0, repeat=0)
+
+    # Get preprocessed numpy arrays for nanoTabPFN evaluation
+    datasets = TabArena.get_numpy_datasets(max_features=10, max_instances=200)
+    for name, (X, y) in datasets.items():
+        clf.fit(X_train, y_train)
+        ...
 """
 
 from __future__ import annotations
@@ -45,9 +51,15 @@ import tempfile
 from pathlib import Path
 from typing import ClassVar, Iterator
 
+import numpy as np
+import pandas as pd
 import pyarrow as pa
 import pyarrow.ipc as ipc
 from loguru import logger as logging
+from sklearn.compose import ColumnTransformer
+from sklearn.model_selection import train_test_split
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import LabelEncoder, OrdinalEncoder, FunctionTransformer
 
 from stable_datasets.arrow_dataset import _mmap_ipc
 from stable_datasets.schema import Version
@@ -218,6 +230,128 @@ class TabArena(TabularBaseDatasetBuilder):
         ids = task_ids if task_ids is not None else cls.task_ids()
         for tid in ids:
             yield cls.load(task_id=tid, processed_cache_dir=processed_cache_dir)
+
+    # ------------------------------------------------------------------
+    # Preprocessed numpy datasets (for nanoTabPFN evaluation)
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def get_numpy_datasets(
+        cls,
+        max_features: int = 10,
+        max_instances: int = 200,
+        max_classes: int = 2,
+        max_missing_pct: float = 0.0,
+        min_minority_pct: float = 2.5,
+        processed_cache_dir: Path | str | None = None,
+    ) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+        """Load TabArena classification tasks as preprocessed numpy arrays.
+
+        Filters, preprocesses, and subsamples tasks for use with sklearn-style
+        classifiers (e.g. nanoTabPFN).  Each returned dataset has:
+
+        - Numerical columns cast to float, categorical columns ordinal-encoded
+        - Constant columns dropped
+        - Target label-encoded to ``0 .. n_classes-1``
+        - Rows subsampled (stratified) to ``max_instances``
+
+        Args:
+            max_features:      Skip tasks with more than this many features.
+            max_instances:     Subsample to this many rows (stratified).
+            max_classes:       Skip tasks with more than this many classes.
+            max_missing_pct:   Skip tasks where missing-value percentage exceeds this.
+            min_minority_pct:  Skip tasks where minority class percentage is below this.
+            processed_cache_dir: Passed through to :meth:`load`.
+
+        Returns:
+            Dict mapping dataset name to ``(X, y)`` numpy arrays.
+        """
+        import openml
+        from openml.tasks import TaskType
+
+        datasets: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+
+        for task_id in cls.task_ids():
+            task = openml.tasks.get_task(task_id, download_splits=False)
+            if task.task_type_id != TaskType.SUPERVISED_CLASSIFICATION:
+                continue
+
+            dataset = task.get_dataset(download_data=False)
+            qualities = dataset.qualities
+
+            if qualities["NumberOfFeatures"] > max_features:
+                continue
+            if qualities["NumberOfClasses"] > max_classes:
+                continue
+            if qualities["PercentageOfInstancesWithMissingValues"] > max_missing_pct:
+                continue
+            if qualities["MinorityClassPercentage"] < min_minority_pct:
+                continue
+
+            X, y, _, _ = dataset.get_data(
+                target=task.target_name, dataset_format="dataframe",
+            )
+
+            if max_instances < len(y):
+                _, X, _, y = train_test_split(
+                    X, y, test_size=max_instances, stratify=y, random_state=0,
+                )
+
+            X = X.to_numpy(copy=True)
+            y = y.to_numpy(copy=True)
+
+            y = LabelEncoder().fit_transform(y)
+
+            preprocessor = _get_feature_preprocessor(X)
+            X = preprocessor.fit_transform(X)
+
+            datasets[dataset.name] = (X, y)
+
+        return datasets
+
+
+# ------------------------------------------------------------------
+# Preprocessing helpers
+# ------------------------------------------------------------------
+
+
+def _get_feature_preprocessor(X: np.ndarray | pd.DataFrame) -> ColumnTransformer:
+    """Build a preprocessor that drops constant columns, casts numerics, and ordinal-encodes categoricals."""
+    X = pd.DataFrame(X)
+    num_mask = []
+    cat_mask = []
+    for col in X:
+        unique_non_nan = X[col].dropna().unique()
+        if len(unique_non_nan) <= 1:
+            num_mask.append(False)
+            cat_mask.append(False)
+            continue
+        non_nan_count = X[col].notna().sum()
+        numeric_count = pd.to_numeric(X[col], errors="coerce").notna().sum()
+        num_mask.append(non_nan_count == numeric_count)
+        cat_mask.append(non_nan_count != numeric_count)
+
+    num_mask = np.array(num_mask)
+    cat_mask = np.array(cat_mask)
+
+    num_transformer = Pipeline([
+        ("to_pandas", FunctionTransformer(
+            lambda x: pd.DataFrame(x) if not isinstance(x, pd.DataFrame) else x,
+        )),
+        ("to_numeric", FunctionTransformer(
+            lambda x: x.apply(pd.to_numeric, errors="coerce").to_numpy(),
+        )),
+    ])
+    cat_transformer = Pipeline([
+        ("encoder", OrdinalEncoder(
+            handle_unknown="use_encoded_value", unknown_value=np.nan,
+        )),
+    ])
+
+    return ColumnTransformer(transformers=[
+        ("num", num_transformer, num_mask),
+        ("cat", cat_transformer, cat_mask),
+    ])
 
 
 # ------------------------------------------------------------------
