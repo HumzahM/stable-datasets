@@ -29,39 +29,19 @@ import torch
 from torch.utils.data import DataLoader
 
 
-class SyntheticPrior(DataLoader):
-    """DataLoader that streams synthetic prior data from an HDF5 dump.
+class _SyntheticPriorDataset(torch.utils.data.IterableDataset):
+    """Iterable dataset that streams batches from an HDF5 prior dump.
 
-    Each iteration yields ``num_steps`` batches.  When the file is exhausted
-    the pointer wraps around to the beginning.
-
-    Args:
-        filename: Path to the HDF5 file.
-        num_steps: Number of batches per epoch.
-        batch_size: Number of datasets per batch.
-        device: Device to place tensors on (default: auto-detect).
+    This is the underlying dataset used by :class:`SyntheticPrior`.  It
+    yields pre-batched dicts so the wrapping ``DataLoader`` should use
+    ``batch_size=None``.
     """
 
-    def __init__(
-        self,
-        filename: str,
-        num_steps: int,
-        batch_size: int,
-        device: torch.device | str | None = None,
-    ):
+    def __init__(self, filename: str, num_steps: int, batch_size: int):
         self.filename = filename
         self.num_steps = num_steps
         self.batch_size = batch_size
         self.pointer = 0
-
-        if device is None:
-            if torch.cuda.is_available():
-                device = "cuda"
-            elif torch.backends.mps.is_available():
-                device = "mps"
-            else:
-                device = "cpu"
-        self.device = device
 
         with h5py.File(self.filename, "r") as f:
             self.max_num_classes = f["max_num_classes"][0]
@@ -87,10 +67,35 @@ class SyntheticPrior(DataLoader):
                     self.pointer = 0
 
                 yield dict(
-                    x=x.to(self.device),
-                    y=y.to(self.device),
+                    x=x,
+                    y=y,
                     train_test_split_index=train_test_split_index[0].item(),
                 )
 
     def __len__(self):
         return self.num_steps
+
+
+def SyntheticPrior(
+    filename: str,
+    num_steps: int,
+    batch_size: int,
+) -> DataLoader:
+    """Create a DataLoader that streams synthetic prior data from an HDF5 dump.
+
+    Each iteration yields ``num_steps`` pre-batched dicts.  When the file
+    is exhausted the pointer wraps around to the beginning.
+
+    Device placement is left to the training framework (e.g. PyTorch
+    Lightning moves batches to the accelerator automatically).
+
+    Args:
+        filename: Path to the HDF5 file.
+        num_steps: Number of batches per epoch.
+        batch_size: Number of datasets per batch.
+
+    Returns:
+        A standard ``DataLoader`` wrapping a :class:`_SyntheticPriorDataset`.
+    """
+    dataset = _SyntheticPriorDataset(filename, num_steps, batch_size)
+    return DataLoader(dataset, batch_size=None)
