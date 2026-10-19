@@ -74,6 +74,13 @@ Available Datasets
 
 .. toctree::
    :maxdepth: 1
+   :caption: Time Series Forecasting Datasets
+
+   electricity_hourly
+   uber_tlc
+
+.. toctree::
+   :maxdepth: 1
    :caption: Video Datasets
 
    something_something_v2
