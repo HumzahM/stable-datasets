@@ -18,6 +18,10 @@ taxi zone (``locationID``) and hour or day, with zero for periods without pickup
 series. This is the Uber TLC dataset of the Chronos paper (Ansari et al., 2024); the counts match its published
 copy exactly.
 
+.. image:: teasers/uber_tlc_teaser.png
+   :align: center
+   :width: 90%
+
 Two configs:
 
 .. list-table::
