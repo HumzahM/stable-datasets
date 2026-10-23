@@ -16,6 +16,10 @@ Hourly electricity consumption (kW) of 321 clients from 2012 to 2014, as distrib
 Forecasting Archive (Godahewa et al., 2021). It is the hourly aggregate (Lai et al., 2017) of the UCI
 ElectricityLoadDiagrams20112014 dataset. Every series has 26,304 points.
 
+.. image:: teasers/electricity_hourly_teaser.png
+   :align: center
+   :width: 90%
+
 The splits follow the standard forecasting protocol used by Chronos and GluonTS:
 
 - **Test**: the full series (321); the forecast target is the last ``PREDICTION_LENGTH = 24`` points.
