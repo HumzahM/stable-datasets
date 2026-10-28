@@ -61,12 +61,6 @@ Usage Example
     y = np.asarray(test[0]["series"])
     context, target = y[:-H], y[-H:]
 
-Validation
-----------
-
-``examples/forecasting.py`` reproduces the MASE scores of Table 8 of the Chronos paper (Ansari et al., 2024):
-Seasonal Naive gives 1.840, exactly the paper's value. See :doc:`uber_tlc` for the Chronos-T5 results.
-
 References
 ----------
 

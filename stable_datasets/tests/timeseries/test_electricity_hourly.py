@@ -1,46 +1,34 @@
-import zipfile
-
 import numpy as np
 
-from stable_datasets.schema import Sequence
 from stable_datasets.timeseries import ElectricityHourly
 
 
-def _builder(builder_cls, *args):
-    builder = object.__new__(builder_cls)
-    builder_cls.__init__(builder, *args)
-    return builder
+def test_electricity_hourly_dataset(tmp_path):
+    cache = {"download_dir": str(tmp_path / "downloads"), "processed_cache_dir": str(tmp_path / "processed")}
 
+    # Test 1: Check the splits and their sizes.
+    ds = ElectricityHourly(split=None, **cache)
+    assert set(ds) == {"train", "test"}
+    train, test = ds["train"], ds["test"]
+    assert len(train) == len(test) == 321
 
-def _fake_download(monkeypatch, path):
-    monkeypatch.setattr("stable_datasets.utils.bulk_download", lambda specs, dest_folder: [path] * len(specs))
+    # Test 2: Check the sample fields and types.
+    first = test[0]
+    assert set(first) == {"series", "item_id", "start"}
+    assert isinstance(first["item_id"], str)
+    assert isinstance(first["start"], str)
+    assert (first["item_id"], first["start"]) == ("T1", "2012-01-01T00:00:01")
+    assert test[-1]["item_id"] == "T321"
 
+    # Test 3: Check the series lengths: test is the full series, train drops the forecast horizon.
+    horizon = ElectricityHourly.PREDICTION_LENGTH
+    assert (ElectricityHourly.FREQ, horizon, ElectricityHourly.SEASONALITY) == ("h", 24, 24)
+    test_series = [np.asarray(s, np.float64) for s in test.table.column("series").to_pylist()]
+    train_series = [np.asarray(s, np.float64) for s in train.table.column("series").to_pylist()]
+    assert {len(s) for s in test_series} == {26304}
+    assert all(np.array_equal(a, b[:-horizon]) for a, b in zip(train_series, test_series))
 
-def test_electricity_hourly_metadata():
-    builder = _builder(ElectricityHourly)
-    assert set(builder.info.features) == {"series", "item_id", "start"}
-    assert isinstance(builder.info.features["series"], Sequence)
-    assert (ElectricityHourly.FREQ, ElectricityHourly.PREDICTION_LENGTH, ElectricityHourly.SEASONALITY) == (
-        "h",
-        24,
-        24,
-    )
-
-
-def test_electricity_hourly_smoke(tmp_path, monkeypatch):
-    values = [np.arange(30), np.arange(30) * 2]
-    tsf = "# comment\n@relation Electricity\n@frequency hourly\n@data\n" + "".join(
-        f"T{i + 1}:2012-01-01 00-00-01:{','.join(str(v) for v in s)}\n" for i, s in enumerate(values)
-    )
-    archive = tmp_path / "electricity_hourly_dataset.zip"
-    with zipfile.ZipFile(archive, "w") as zf:
-        zf.writestr("electricity_hourly_dataset.tsf", tsf)
-    _fake_download(monkeypatch, archive)
-
-    test = ElectricityHourly(split="test", processed_cache_dir=str(tmp_path / "processed")).with_format("numpy")
-    train = ElectricityHourly(split="train", processed_cache_dir=str(tmp_path / "processed")).with_format("numpy")
-    assert len(test) == len(train) == 2
-    assert test[1]["item_id"] == "T2"
-    assert test[1]["start"] == "2012-01-01T00:00:01"
-    np.testing.assert_array_equal(test[1]["series"], values[1])
-    np.testing.assert_array_equal(train[1]["series"], values[1][:-24])
+    # Test 4: Check the values parse correctly from the .tsf file.
+    np.testing.assert_array_equal(test_series[0][:3], [14, 18, 21])
+    np.testing.assert_array_equal(test_series[-1][-3:], [2650, 2719, 2640])
+    assert sum(s.sum() for s in test_series) == 21_436_500_541

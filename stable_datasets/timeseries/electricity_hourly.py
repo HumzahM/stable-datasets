@@ -7,6 +7,7 @@ from stable_datasets.utils import BaseDatasetBuilder
 
 
 _URL = "https://zenodo.org/records/4656140/files/electricity_hourly_dataset.zip?download=1"
+_CHECKSUM = "sha256:eff447075dde68dca0105ab7e2851c5637967ae3bb21556fd8b931f196d5968c"
 
 
 class ElectricityHourly(BaseDatasetBuilder):
@@ -21,8 +22,8 @@ class ElectricityHourly(BaseDatasetBuilder):
     SOURCE = DatasetSource(
         homepage="https://zenodo.org/records/4656140",
         assets={
-            "train": DownloadInfo(url=_URL, filename="electricity_hourly_dataset.zip"),
-            "test": DownloadInfo(url=_URL, filename="electricity_hourly_dataset.zip"),
+            "train": DownloadInfo(url=_URL, checksum=_CHECKSUM, filename="electricity_hourly_dataset.zip"),
+            "test": DownloadInfo(url=_URL, checksum=_CHECKSUM, filename="electricity_hourly_dataset.zip"),
         },
         citation="""@inproceedings{godahewa2021monash,
     title={Monash Time Series Forecasting Archive},

@@ -20,8 +20,8 @@ _URL = (
     "https://github.com/fivethirtyeight/uber-tlc-foil-response/raw/master/uber-trip-data/"
     "uber-raw-data-janjune-15.csv.zip"
 )
-_START = "2015-01-01"
-_DAYS = 181  # 2015-01-01 to 2015-06-30
+_CHECKSUM = "sha256:b85c7373ce0b0186eb204e14600033033abf0b2ce47cc97b4ca59e1ec6ec8bec"
+_START, _END = "2015-01-01", "2015-07-01"  # January to June 2015, end exclusive
 
 
 class UberTLC(BaseDatasetBuilder):
@@ -45,8 +45,8 @@ class UberTLC(BaseDatasetBuilder):
     SOURCE = DatasetSource(
         homepage="https://github.com/fivethirtyeight/uber-tlc-foil-response",
         assets={
-            "train": DownloadInfo(url=_URL, filename="uber-raw-data-janjune-15.csv.zip"),
-            "test": DownloadInfo(url=_URL, filename="uber-raw-data-janjune-15.csv.zip"),
+            "train": DownloadInfo(url=_URL, checksum=_CHECKSUM, filename="uber-raw-data-janjune-15.csv.zip"),
+            "test": DownloadInfo(url=_URL, checksum=_CHECKSUM, filename="uber-raw-data-janjune-15.csv.zip"),
         },
         citation="""@misc{fivethirtyeight2015uber,
     title={Uber TLC FOIL Response},
@@ -76,17 +76,17 @@ class UberTLC(BaseDatasetBuilder):
         )
 
     def _generate_examples(self, data_path, split):
-        freq = "h" if self.config.name == "hourly" else "D"
+        freq, prediction_length, _ = self.SETTINGS[self.config.name]
         with zipfile.ZipFile(data_path) as archive, archive.open("uber-raw-data-janjune-15.csv") as handle:
             trips = pd.read_csv(handle, usecols=["Pickup_date", "locationID"], parse_dates=["Pickup_date"])
-        periods = pd.date_range(_START, periods=_DAYS * (24 if freq == "h" else 1), freq=freq)
+        periods = pd.date_range(_START, _END, freq=freq, inclusive="left")
         counts = (
             trips.groupby(["locationID", trips["Pickup_date"].dt.floor(freq)])
             .size()
             .unstack(fill_value=0)
             .reindex(columns=periods, fill_value=0)
         )
-        end = -self.SETTINGS[self.config.name][1] if split == "train" else None
+        end = -prediction_length if split == "train" else None
         for idx, (zone, row) in enumerate(counts.iterrows()):
             yield (
                 idx,
