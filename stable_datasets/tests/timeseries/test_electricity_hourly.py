@@ -1,13 +1,12 @@
 import numpy as np
+import pyarrow as pa
 
 from stable_datasets.timeseries import ElectricityHourly
 
 
 def test_electricity_hourly_dataset(tmp_path):
-    cache = {"download_dir": str(tmp_path / "downloads"), "processed_cache_dir": str(tmp_path / "processed")}
-
     # Test 1: Check the splits and their sizes.
-    ds = ElectricityHourly(split=None, **cache)
+    ds = ElectricityHourly(split=None, download_dir=str(tmp_path / "downloads"), processed_cache_dir=str(tmp_path))
     assert set(ds) == {"train", "test"}
     train, test = ds["train"], ds["test"]
     assert len(train) == len(test) == 321
@@ -15,12 +14,14 @@ def test_electricity_hourly_dataset(tmp_path):
     # Test 2: Check the sample fields and types.
     first = test[0]
     assert set(first) == {"series", "item_id", "start"}
+    assert test.table.schema.field("series").type == pa.list_(pa.float32())
+    assert isinstance(first["series"], list)
     assert isinstance(first["item_id"], str)
     assert isinstance(first["start"], str)
     assert (first["item_id"], first["start"]) == ("T1", "2012-01-01T00:00:01")
     assert test[-1]["item_id"] == "T321"
 
-    # Test 3: Check the series lengths: test is the full series, train drops the forecast horizon.
+    # Test 3: Check the forecasting settings and series lengths: test is the full series, train drops the horizon.
     horizon = ElectricityHourly.PREDICTION_LENGTH
     assert (ElectricityHourly.FREQ, horizon, ElectricityHourly.SEASONALITY) == ("h", 24, 24)
     test_series = [np.asarray(s, np.float64) for s in test.table.column("series").to_pylist()]
